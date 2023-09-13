@@ -1,14 +1,33 @@
 import { Request, Response } from "express"
 import prisma from "../config/dbConnection"
+import redisClient from "../config/redisClient";
 
 class AutorController{
     static getAll = async (req: Request, res: Response) => {
         try{
-            const autores = await prisma.autor.findMany({
-                include: {livros: true}
-            });
+            let autores = [];
+            let fromCache = false;
 
-            res.status(200).send(autores);
+            const isCached = await redisClient.get('all_autores');
+
+            if(isCached){
+                autores = JSON.parse(isCached);
+                fromCache = true;
+            }else{
+                autores = await prisma.autor.findMany({
+                    include: {livros: true}
+                });
+
+                redisClient.set('all_autores', JSON.stringify(autores));
+
+                //cache expires in 30 seconds
+                redisClient.expire('all_autores', 30);
+            }
+
+            res.status(200).send({
+                fromCache: fromCache,
+                result: autores
+            });
         }catch(err){
             res.status(500).send({
                 message: "Erro interno do servidor"
